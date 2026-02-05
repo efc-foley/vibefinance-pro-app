@@ -156,34 +156,45 @@ if ticker_symbol:
     try:
         # Fetch Data
         ticker = yf.Ticker(ticker_symbol)
-        info = ticker.info
         
-        # Validation Check
-        if not info or ('regularMarketPrice' not in info and 'currentPrice' not in info):
+        # yfinance info can be unreliable; we fetch 'fast_info' and 'info' separately
+        info = ticker.info
+        fast_info = ticker.fast_info 
+
+        # Validation Check (Fast Info as additional fallback)
+        if not info and not fast_info:
             st.error(f"❌ Ticker '{ticker_symbol}' not found.")
         else:
             # Header Info
             company_name = info.get('longName', ticker_symbol)
-            curr_price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('navPrice')
-            prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose')
             
-            # Custom Yahoo Header
+            # Robust Price Fetching (Checks multiple possible keys)
+            curr_price = info.get('currentPrice') or info.get('regularMarketPrice') or fast_info.get('last_price')
+            prev_close = info.get('previousClose') or info.get('regularMarketPreviousClose') or fast_info.get('previous_close')
+
             if curr_price and prev_close:
                 price_change = curr_price - prev_close
                 pct_change = (price_change / prev_close) * 100
+                delta_str = f"{price_change:,.2f} ({pct_change:.2f}%)"
                 delta_class = "yh-delta-pos" if price_change >= 0 else "yh-delta-neg"
                 delta_sign = "+" if price_change >= 0 else ""
-                
-                st.markdown(f"""
-                    <div class="yh-header">
-                        <p style="color: #8b949e; font-size: 0.9rem; margin-bottom: 0.2rem;">{info.get('exchange', 'Exchange')}</p>
-                        <h1 class="yh-company-name">{company_name} ({ticker_symbol})</h1>
-                        <div class="yh-price-container">
-                            <span class="yh-current-price">{curr_price:,.2f}</span>
-                            <span class="{delta_class}">{delta_sign}{price_change:,.2f} ({delta_sign}{pct_change:.2f}%)</span>
-                        </div>
+            else:
+                delta_str = "Price Data Unavailable"
+                delta_class = "yh-delta-neg"
+                delta_sign = ""
+
+            # Custom Yahoo Header
+            price_display = f"{curr_price:,.2f}" if curr_price else "N/A"
+            st.markdown(f"""
+                <div class="yh-header">
+                    <p style="color: #8b949e; font-size: 0.9rem; margin-bottom: 0.2rem;">{info.get('exchange', 'Exchange')}</p>
+                    <h1 class="yh-company-name">{company_name} ({ticker_symbol})</h1>
+                    <div class="yh-price-container">
+                        <span class="yh-current-price">{price_display}</span>
+                        <span class="{delta_class}">{delta_sign if delta_str != "Price Data Unavailable" else ""}{delta_str}</span>
                     </div>
-                """, unsafe_allow_html=True)
+                </div>
+            """, unsafe_allow_html=True)
             
             # Layout with Tabs
             tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Statistics", "News", "Financials"])
@@ -191,7 +202,7 @@ if ticker_symbol:
             with tab1:
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric(label="Previous Close", value=f"${prev_close:,.2f}" if prev_close else "N/A")
+                    st.metric(label="Current Price", value=f"${curr_price:,.2f}" if curr_price else "N/A", delta=delta_str if delta_str != "Price Data Unavailable" else None)
                 with col2:
                     st.metric(label="Day High", value=f"${info.get('dayHigh', 0):,.2f}")
                 with col3:
